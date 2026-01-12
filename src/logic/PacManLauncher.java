@@ -172,7 +172,7 @@ public class PacManLauncher {
 				if(this.maps.getVisibleBeliefState().size() != 1) {
 					System.out.println("Problem");
 				}
-				isInit = this.pacman.move(AI_original.findNextMove(this.maps.getVisibleBeliefState().get(0)));//l'IA choisit un mouvement est Pacman commence a se deplacer
+				isInit = this.pacman.move(AI.findNextMove(this.maps.getVisibleBeliefState().get(0)));//l'IA choisit un mouvement est Pacman commence a se deplacer
 				elapsedTime = System.currentTimeMillis() - elapsedTime;
 				this.nbrSamples++;
 				this.meanTimeResolution = ((double)elapsedTime) / this.nbrSamples + (((double)(this.nbrSamples - 1)) / this.nbrSamples) * this.meanTimeResolution;

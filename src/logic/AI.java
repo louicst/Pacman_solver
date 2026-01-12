@@ -1,43 +1,39 @@
 package logic;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.TreeSet;
-import view.Gomme;
 
-/**
- * class used to represent plan. It will provide for a given set of results an action to perform in each result
- */
-class Plans{
+// --- Les classes Plans et Result restent inchangées ---
+class Plans {
     ArrayList<Result> results;
     ArrayList<ArrayList<String>> actions;
-    
+
     public Plans() {
         this.results = new ArrayList<Result>();
         this.actions = new ArrayList<ArrayList<String>>();
     }
-    
+
     public void addPlan(Result beliefBeliefState, ArrayList<String> action) {
         this.results.add(beliefBeliefState);
         this.actions.add(action);
     }
-    
+
     public int size() {
         return this.results.size();
     }
-    
+
     public Result getResult(int index) {
         return this.results.get(index);
     }
-    
-    public ArrayList<String> getAction(int index){
+
+    public ArrayList<String> getAction(int index) {
         return this.actions.get(index);
     }
 }
 
-/**
- * class used to represent a transition function i.e., a set of possible belief states the agent may be in after performing an action
- */
-class Result{
+class Result {
     private ArrayList<BeliefState> beliefStates;
 
     public Result(ArrayList<BeliefState> states) {
@@ -51,139 +47,147 @@ class Result{
     public BeliefState getBeliefState(int index) {
         return this.beliefStates.get(index);
     }
-    
-    public ArrayList<BeliefState> getBeliefStates(){
+
+    public ArrayList<BeliefState> getBeliefStates() {
         return this.beliefStates;
     }
 }
 
+// --- IA COMPLETE : SURVIE + EXPLORATION ---
 
-/**
- * Classe implémentant l'IA avec l'algorithme AND-OR Search (Expectiminimax)
- */
 public class AI {
     
-    // Profondeur de recherche. 3 est rapide, 4 est plus intelligent mais plus lent.
-    private static final int MAX_DEPTH = 3; 
+    // Mémoire des cases visitées "Ligne,Colonne"
+    private static Set<String> visited = new HashSet<>();
+    private static final int MAX_DEPTH = 1; 
 
-    /**
-     * Fonction principale appelée par le jeu pour décider du prochain mouvement.
-     */
-    public static String findNextMove(BeliefState beliefState) {
+    public static String findNextMove(BeliefState currentState) {
         
-        // 1. Générer les plans possibles (Branchement OR)
-        Plans plans = beliefState.extendsBeliefState();
-        
-        String bestAction = PacManLauncher.UP; // Valeur par défaut
-        double maxVal = Double.NEGATIVE_INFINITY;
+        // On mémorise où on est
+        Position currentPos = currentState.getPacmanPosition();
+        visited.add(currentPos.getRow() + "," + currentPos.getColumn());
 
-        // 2. Parcourir chaque action possible (Racine de l'arbre)
+        Plans plans = currentState.extendsBeliefState();
+        String bestAction = PacManLauncher.UP; 
+        double maxScore = Double.NEGATIVE_INFINITY;
+
         for (int i = 0; i < plans.size(); i++) {
             Result result = plans.getResult(i);
             ArrayList<String> actions = plans.getAction(i);
             
-            // Si aucune action associée, on passe
             if (actions.isEmpty()) continue;
             
-            // Calculer la valeur de cette branche (Branchement AND)
-            double currentVal = evaluateAndNode(result, MAX_DEPTH - 1);
+            // Évaluation du futur
+            double score = evaluateResult(result, currentPos);
             
-            // On garde la meilleure action (MAX)
-            if (currentVal > maxVal) {
-                maxVal = currentVal;
-                // On prend la première action de la liste équivalente (ex: UP)
-                bestAction = actions.get(0); 
+            // Petit aléatoire pour varier les chemins si les scores sont égaux
+            score += Math.random() * 0.5;
+
+            if (score > maxScore) {
+                maxScore = score;
+                bestAction = actions.get(0);
             }
         }
-        
         return bestAction;
     }
 
-    /**
-     * Évalue un noeud AND (un Résultat contenant plusieurs BeliefStates possibles).
-     * On fait la MOYENNE des valeurs (Espérance), car on ne sait pas quel état va se produire.
-     */
-    private static double evaluateAndNode(Result result, int depth) {
+    private static double evaluateResult(Result result, Position currentPos) {
         if (result.size() == 0) return Double.NEGATIVE_INFINITY;
-
+        
         double totalScore = 0;
-        
         for (BeliefState state : result.getBeliefStates()) {
-            totalScore += expectiminimax(state, depth);
+            totalScore += heuristic(state, currentPos);
         }
-        
-        // Retourne la moyenne des scores possibles
         return totalScore / result.size();
     }
 
     /**
-     * Fonction récursive principale (Partie OR).
-     * Choisit la meilleure action possible à partir d'un état donné.
+     * HEURISTIQUE COMPLETE
+     * 1. Mur = PÉNALITÉ MAX
+     * 2. Fantôme aligné = PÉNALITÉ MAX
+     * 3. Déjà visité = Petite pénalité
+     * 4. Gomme à côté = Bonus
      */
-    private static double expectiminimax(BeliefState state, int depth) {
-        // Condition d'arrêt : profondeur atteinte ou mort
-        if (depth == 0 || state.getLife() <= 0) {
-            return heuristic(state);
-        }
-
-        Plans plans = state.extendsBeliefState();
-        
-        // S'il n'y a plus de plans possibles (bloqué ou fin), on évalue
-        if (plans.size() == 0) return heuristic(state);
-
-        double maxVal = Double.NEGATIVE_INFINITY;
-
-        // On cherche l'action qui maximise le score (MAX node)
-        for (int i = 0; i < plans.size(); i++) {
-            Result result = plans.getResult(i);
-            double val = evaluateAndNode(result, depth - 1);
-            if (val > maxVal) {
-                maxVal = val;
-            }
-        }
-        
-        return maxVal;
-    }
-
-    /**
-     * Fonction d'évaluation (Heuristique) pour donner un score à un état terminal ou feuille.
-     */
-    private static double heuristic(BeliefState state) {
-        // 1. Priorité absolue : LA SURVIE
-        // Si on a perdu une vie par rapport au début (supposé 1 vie min), c'est catastrophique.
-        if (state.getLife() <= 0) {
-            return -1000000.0; // Mort = Très mauvaise note
-        }
-        
+    private static double heuristic(BeliefState state, Position originalPos) {
+        Position futurePos = state.getPacmanPosition();
+        int r = futurePos.getRow();
+        int c = futurePos.getColumn();
         double score = 0;
 
-        // 2. Le Score du jeu (Gommes mangées, Fantômes mangés)
-        score += state.getScore() * 10.0;
-
-        // 3. Distance à la gomme la plus proche
-        // On veut MINIMISER la distance, donc on SOUSTRAIT cette valeur.
-        int dist = state.distanceMinToGum();
-        if (dist != Integer.MAX_VALUE) {
-            score -= (dist * 2.0); // Poids de 2 pour la distance
-        } else {
-            // Si aucune gomme n'est accessible (bug ou fin de niveau), petite pénalité
-            score -= 1000; 
+        // --- 1. DÉTECTION MUR (-100 000) ---
+        // Si on n'a pas bougé, c'est interdit.
+        if (r == originalPos.getRow() && c == originalPos.getColumn()) {
+            return -100000.0;
+        }
+        
+        // --- 2. DÉTECTION FANTÔME (La nouveauté) ---
+        // On vérifie si ce futur nous met en danger immédiat
+        if (isDanger(state, r, c)) {
+            return -50000.0; // On fuit cette direction comme la peste !
         }
 
-        // 4. Bonus pour les fantômes mangeables (Peur > 0)
-        // On encourage Pacman à chasser si les fantômes sont bleus
-        int nbrGhosts = state.getNbrOfGhost();
-        for(int i=0; i < nbrGhosts; i++) {
-             if (state.getCompteurPeur(i) > 0) {
-                 score += 200; // Gros bonus si on est dans un état où on peut manger
-             }
+        // --- 3. SURVIE BASIQUE ---
+        // Si on meurt dans cet état, c'est évidemment nul
+        if (state.getLife() <= 0) {
+            return -1000000.0;
         }
 
-        // 5. Pénalité de sécurité (optionnelle mais conseillée)
-        // Si un fantôme non effrayé est très proche, on baisse le score
-        // (Note: C'est complexe à calculer sans accès direct aux positions exactes dans l'heuristique simple,
-        // mais le BeliefState gère déjà la mort implicitement via getLife).
+        // --- 4. EXPLORATION (-1 si déjà vu) ---
+        if (visited.contains(r + "," + c)) {
+            score -= 1.0;
+        }
+
+        // --- 5. FLAIR (+1 si gomme adjacente) ---
+        if (hasGumNeighbor(state, r, c)) {
+            score += 1.0;
+        }
+        
+        // On ajoute le score du jeu pour départager
+        score += state.getScore();
 
         return score;
+    }
+
+    // Vérifie si un fantôme dangereux est trop proche ou aligné
+    private static boolean isDanger(BeliefState state, int pacRow, int pacCol) {
+        int nbrGhosts = state.getNbrOfGhost();
+        for (int i = 0; i < nbrGhosts; i++) {
+            // Si le fantôme est mangeable (bleu), pas de danger
+            if (state.getCompteurPeur(i) > 0) continue;
+            
+            // On regarde toutes les positions possibles de ce fantôme
+            TreeSet<Position> ghostPositions = state.getGhostPositions(i);
+            for (Position ghostPos : ghostPositions) {
+                int gRow = ghostPos.getRow();
+                int gCol = ghostPos.getColumn();
+                
+                // Distance de Manhattan
+                int dist = Math.abs(gRow - pacRow) + Math.abs(gCol - pacCol);
+                
+                // DANGER IMMÉDIAT : Si le fantôme est à 1 case (collision imminente)
+                if (dist <= 1) return true;
+                
+                // DANGER LIGNE DE VUE : Si on est sur la même ligne/colonne et proche (< 5 cases)
+                // On suppose qu'il nous voit et qu'il va charger.
+                if ((gRow == pacRow || gCol == pacCol) && dist < 5) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasGumNeighbor(BeliefState state, int r, int c) {
+        try {
+            if (isGum(state.getMap(r+1, c))) return true;
+            if (isGum(state.getMap(r-1, c))) return true;
+            if (isGum(state.getMap(r, c+1))) return true;
+            if (isGum(state.getMap(r, c-1))) return true;
+        } catch (Exception e) {}
+        return false;
+    }
+
+    private static boolean isGum(char cell) {
+        return cell == '.' || cell == '*';
     }
 }

@@ -1,0 +1,5 @@
+- le fantome : 
+
+déterministe quand isVisible = True
+aléatoire sinon
+meme vitesse que mon pacman
