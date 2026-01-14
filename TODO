@@ -1,3 +1,4 @@
 - Comprendre le fonctionnement du jeu global
 - comprendre le mode de decision d'un fantome
 - Explorer les stratégie sur un pac man normal des champions du monde
+- configurer un Bellman Ford/Djikstra avec une heuristique pour ponderer chaque noeuds dans la queue

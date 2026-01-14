@@ -64,24 +64,21 @@ public class AI {
     public static String findNextMove(BeliefState currentState) {
         
         // On mémorise où on est
-        Position currentPos = currentState.getPacmanPosition();
+        Position currentPos = currentState.getPacmanPosition();         //currentPos nous donne la position de pacman
         visited.add(currentPos.getRow() + "," + currentPos.getColumn());
 
-        Plans plans = currentState.extendsBeliefState();
+        Plans plans = currentState.extendsBeliefState();                //plans : toutes les action qu'on peut faire et les resultast qu'elles engendrent
         String bestAction = PacManLauncher.UP; 
         double maxScore = Double.NEGATIVE_INFINITY;
 
         for (int i = 0; i < plans.size(); i++) {
-            Result result = plans.getResult(i);
-            ArrayList<String> actions = plans.getAction(i);
+            Result result = plans.getResult(i);                        //result : liste pour une action donné, des états potentiel du plateau
+            ArrayList<String> actions = plans.getAction(i);            //actions : action donné associé à result
             
-            if (actions.isEmpty()) continue;
             
             // Évaluation du futur
             double score = evaluateResult(result, currentPos);
-            
-            // Petit aléatoire pour varier les chemins si les scores sont égaux
-            score += Math.random() * 0.5;
+         
 
             if (score > maxScore) {
                 maxScore = score;
@@ -91,14 +88,14 @@ public class AI {
         return bestAction;
     }
 
-    private static double evaluateResult(Result result, Position currentPos) {
+    private static double evaluateResult(Result result, Position currentPos) {      //result : liste des états potentiel du plateau, currentPOs : celle de pacman
         if (result.size() == 0) return Double.NEGATIVE_INFINITY;
         
         double totalScore = 0;
         for (BeliefState state : result.getBeliefStates()) {
-            totalScore += heuristic(state, currentPos);
+            totalScore += heuristic(state, currentPos);     //state : état d'un plateau de potentiel resultats
         }
-        return totalScore / result.size();
+        return totalScore;
     }
 
     /**
@@ -129,7 +126,7 @@ public class AI {
         // --- 3. SURVIE BASIQUE ---
         // Si on meurt dans cet état, c'est évidemment nul
         if (state.getLife() <= 0) {
-            return -1000000.0;
+            return  Double.NEGATIVE_INFINITY;
         }
 
         // --- 4. EXPLORATION (-1 si déjà vu) ---

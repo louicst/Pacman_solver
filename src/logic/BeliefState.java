@@ -113,7 +113,7 @@ public class BeliefState implements Comparable{
 		BeliefState.listPGhostInit = listPGhostInit;
 		BeliefState.tailleCase = tailleCase;
 		BeliefState.taille = taille;
-	}
+	} 
 	/**
 	 * create a new BeliefState object
 	 * @param theMap the current version of the Pacman man discribing the position of (super) gums
