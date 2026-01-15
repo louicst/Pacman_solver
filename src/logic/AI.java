@@ -111,62 +111,99 @@ public class AI {
     private static double getObjectiveScore(BeliefState state, BeliefState parent) {
         double score = 0;
         Position pac = state.getPacmanPosition();
+        
+        // 1. BASE GAME SCORE
         score += state.getScore() * 10.0;
 
+        // 2. PASSIVE NAVIGATION (Distance to nearest)
         int distGum = state.distanceMinToGum();
         if (distGum != Integer.MAX_VALUE && distGum > 0) {
-            score += (100.0 / distGum); 
+            score += (150.0 / distGum); // increased weight
         }
 
-        int normalGumsParent = parent.getNbrOfGommes() - parent.getNbrOfSuperGommes();
-        int normalGumsChild = state.getNbrOfGommes() - state.getNbrOfSuperGommes();
-
-        if (normalGumsChild < normalGumsParent) {
-            score += 100.0; // Bonus pour avoir mangé une petite gomme
-            // System.out.println("DEBUG: Miam ! Une gomme normale.");
+        // 3. GLOBAL FLOW (Solves side-switching)
+        // If there are no coins nearby, look at the big picture
+        if (distGum > 10 || distGum == Integer.MAX_VALUE) {
+            score += getGlobalCoinGravity(state, pac);
         }
 
+        // 4. GHOST ANALYSIS
         int nbrGhosts = state.getNbrOfGhost();
         int nearbyVisibleGhosts = 0;
-
         for(int i = 0; i < nbrGhosts; i++) {
             TreeSet<Position> positions = state.getGhostPositions(i);
             if (positions.isEmpty()) continue;
-
             Position gPos = positions.first();
             int dist = Math.abs(gPos.getRow() - pac.getRow()) + Math.abs(gPos.getColumn() - pac.getColumn());
 
             if (state.getCompteurPeur(i) > 0) {
-                // CHASSE : On veut manger les bleus
                 if (dist > 0) score += (5000.0 / dist);
                 else score += 10000.0; 
-            } 
-            else {
-                // KITING : On compte les fantômes visibles et proches (distance < 6)
-                if (positions.size() == 1 && dist < 6) {
-                    nearbyVisibleGhosts++;
+            } else if (positions.size() == 1 && dist < 6) {
+                nearbyVisibleGhosts++;
+            }
+        }
+
+        // 5. SUPER GUM STRATEGY (The "Stalking" fix)
+        // We look for the distance to the nearest Super Gum
+        int distToSuper = getDistanceToNearestSuperGum(state, pac);
+        if (distToSuper == 1 && nearbyVisibleGhosts < 2) {
+            // Right next to it but ghosts aren't ready? PAIN.
+            score -= 15000.0; 
+        } else if (distToSuper >= 2 && distToSuper <= 3 && nearbyVisibleGhosts < 2) {
+            // This is the "Sweet Spot". Pacman will try to stay here.
+            score += 200.0; 
+        }
+
+        // 6. NORMAL GUM CONSUMPTION
+        int normalGumsParent = parent.getNbrOfGommes() - parent.getNbrOfSuperGommes();
+        int normalGumsChild = state.getNbrOfGommes() - state.getNbrOfSuperGommes();
+        if (normalGumsChild < normalGumsParent) score += 300.0;
+
+        return score;
+    }
+
+    // Helper to find the nearest Super Gum position
+    private static int getDistanceToNearestSuperGum(BeliefState state, Position pac) {
+        int minDist = Integer.MAX_VALUE;
+        char[][] map = state.getMap();
+        for (int r = 0; r < map.length; r++) {
+            for (int c = 0; c < map[r].length; c++) {
+                if (map[r][c] == '*') {
+                    int d = Math.abs(r - pac.getRow()) + Math.abs(c - pac.getColumn());
+                    if (d < minDist) minDist = d;
                 }
             }
         }
-        // --- PÉNALITÉ SUPER GOMME (Ta demande) ---
-        // On vérifie si une Super Gomme a été mangée lors de cette transition
-        if (state.getNbrOfSuperGommes() < parent.getNbrOfSuperGommes()) {
-            
-            if (nearbyVisibleGhosts < 2) {
-                // CAS D'ÉCHEC : On a mangé la gomme alors qu'ils n'étaient pas derrière nous
-                score -= 1000.0; // Grosse pénalité pour interdire ce mouvement
-            } else {
-                // CAS DE RÉUSSITE : On les a bien attirés, on déclenche le carnage
-                score += 5000.0; 
+        return minDist;
+    }
+
+    // Solves the "Switching Sides" problem by looking at the average coin position
+    private static double getGlobalCoinGravity(BeliefState state, Position pac) {
+        double avgR = 0, avgC = 0, count = 0;
+        char[][] map = state.getMap();
+        for (int r = 0; r < map.length; r++) {
+            for (int c = 0; c < map[r].length; c++) {
+                if (map[r][c] == '.' || map[r][c] == '*') {
+                    avgR += r; avgC += c; count++;
+                }
             }
         }
-        return score;
+        if (count == 0) return 0;
+        avgR /= count; avgC /= count;
+        double distToMass = Math.abs(avgR - pac.getRow()) + Math.abs(avgC - pac.getColumn());
+        return (200.0 / (distToMass + 1)); // Pulls Pacman towards the high-density areas
     }
 
     private static double getDangerScore(BeliefState state) {
         double danger = 0;
         Position pac = state.getPacmanPosition();
         int nbrGhosts = state.getNbrOfGhost();
+
+        if (state.getLife() <= 0) {
+            return 1000000.0;
+        }
+
 
         for (int i = 0; i < nbrGhosts; i++) {
             if (state.getCompteurPeur(i) > 0) continue;
