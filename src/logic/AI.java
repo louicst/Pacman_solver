@@ -2,189 +2,262 @@ package logic;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
+import javax.swing.JOptionPane; // <--- Import for the Popup
 
-// --- Les classes Plans et Result restent inchangées ---
+// ... (Keep your existing Plans and Result classes exactly as they are) ...
 class Plans {
     ArrayList<Result> results;
     ArrayList<ArrayList<String>> actions;
-
-    public Plans() {
-        this.results = new ArrayList<Result>();
-        this.actions = new ArrayList<ArrayList<String>>();
-    }
-
-    public void addPlan(Result beliefBeliefState, ArrayList<String> action) {
-        this.results.add(beliefBeliefState);
-        this.actions.add(action);
-    }
-
-    public int size() {
-        return this.results.size();
-    }
-
-    public Result getResult(int index) {
-        return this.results.get(index);
-    }
-
-    public ArrayList<String> getAction(int index) {
-        return this.actions.get(index);
-    }
+    public Plans() { results = new ArrayList<>(); actions = new ArrayList<>(); }
+    public void addPlan(Result r, ArrayList<String> a) { results.add(r); actions.add(a); }
+    public int size() { return results.size(); }
+    public Result getResult(int i) { return results.get(i); }
+    public ArrayList<String> getAction(int i) { return actions.get(i); }
 }
 
 class Result {
     private ArrayList<BeliefState> beliefStates;
-
-    public Result(ArrayList<BeliefState> states) {
-        this.beliefStates = states;
-    }
-
-    public int size() {
-        return this.beliefStates.size();
-    }
-
-    public BeliefState getBeliefState(int index) {
-        return this.beliefStates.get(index);
-    }
-
-    public ArrayList<BeliefState> getBeliefStates() {
-        return this.beliefStates;
-    }
+    public Result(ArrayList<BeliefState> s) { beliefStates = s; }
+    public int size() { return beliefStates.size(); }
+    public BeliefState getBeliefState(int i) { return beliefStates.get(i); }
+    public ArrayList<BeliefState> getBeliefStates() { return beliefStates; }
 }
 
-// --- IA COMPLETE : SURVIE + EXPLORATION ---
+// --- AI CLASS ---
 
 public class AI {
     
-    // Mémoire des cases visitées "Ligne,Colonne"
-    private static Set<String> visited = new HashSet<>();
-    private static final int MAX_DEPTH = 1; 
+    private static java.util.Map<String, Integer> visited = new java.util.HashMap<>();
 
     public static String findNextMove(BeliefState currentState) {
         
-        // On mémorise où on est
-        Position currentPos = currentState.getPacmanPosition();         //currentPos nous donne la position de pacman
-        visited.add(currentPos.getRow() + "," + currentPos.getColumn());
+        // 1. Debug Feedback
+        feedback(currentState);
 
-        Plans plans = currentState.extendsBeliefState();                //plans : toutes les action qu'on peut faire et les resultast qu'elles engendrent
+        // 2. Memory
+        Position currentPos = currentState.getPacmanPosition();
+        String key = currentPos.getRow() + "," + currentPos.getColumn();
+        visited.put(key, visited.getOrDefault(key, 0) + 1);
+
+        Plans plans = currentState.extendsBeliefState();
         String bestAction = PacManLauncher.UP; 
         double maxScore = Double.NEGATIVE_INFINITY;
 
         for (int i = 0; i < plans.size(); i++) {
-            Result result = plans.getResult(i);                        //result : liste pour une action donné, des états potentiel du plateau
-            ArrayList<String> actions = plans.getAction(i);            //actions : action donné associé à result
+            Result result = plans.getResult(i);
+            ArrayList<String> actions = plans.getAction(i);
             
+            if (actions.isEmpty()) continue;
             
-            // Évaluation du futur
-            double score = evaluateResult(result, currentPos);
-         
+            double score = evaluateResult(result, currentState);
+
+            // Random tie-breaker
+            score += Math.random() * 0.01;
 
             if (score > maxScore) {
                 maxScore = score;
                 bestAction = actions.get(0);
             }
         }
+        
+        // --- DEBUG CONTROL ---
+        // Choose ONE of the following methods:
+        
+        //waitForUserPopup(); // OPTION 1: You must press ENTER on the popup
+        // playSlowMotion();   // OPTION 2: Game plays automatically but slowly
+        
+        // ---------------------
+
         return bestAction;
     }
 
-    private static double evaluateResult(Result result, Position currentPos) {      //result : liste des états potentiel du plateau, currentPOs : celle de pacman
+    // --- OPTION 1: STEP-BY-STEP (Popup) ---
+    private static void waitForUserPopup() {
+        // This opens a tiny dialog window. 
+        // It pauses the code here, but allows the Game Window background to keep rendering.
+        // You can just hit SPACE or ENTER to dismiss it quickly.
+        try {
+            JOptionPane.showMessageDialog(null, "Score calculated. Press OK for next move.", "AI Debugger", JOptionPane.PLAIN_MESSAGE);
+        } catch (Exception e) {
+            // Ignore UI errors
+        }
+    }
+
+    // --- EXISTING HELPER METHODS (Keep your logic) ---
+
+    private static double evaluateResult(Result result, BeliefState parentState) {
         if (result.size() == 0) return Double.NEGATIVE_INFINITY;
-        
         double totalScore = 0;
         for (BeliefState state : result.getBeliefStates()) {
-            totalScore += heuristic(state, currentPos);     //state : état d'un plateau de potentiel resultats
+            totalScore += heuristic(state, parentState);
         }
-        return totalScore;
+        return totalScore / result.size();
     }
 
-    /**
-     * HEURISTIQUE COMPLETE
-     * 1. Mur = PÉNALITÉ MAX
-     * 2. Fantôme aligné = PÉNALITÉ MAX
-     * 3. Déjà visité = Petite pénalité
-     * 4. Gomme à côté = Bonus
-     */
-    private static double heuristic(BeliefState state, Position originalPos) {
-        Position futurePos = state.getPacmanPosition();
-        int r = futurePos.getRow();
-        int c = futurePos.getColumn();
+    private static double heuristic(BeliefState state, BeliefState parentState) {
+        Position pac = state.getPacmanPosition();
+
+        
+        double objectiveScore = getObjectiveScore(state, parentState);
+        double dangerScore = getDangerScore(state);
+
+        return objectiveScore - dangerScore;
+    }
+
+    private static double getObjectiveScore(BeliefState state, BeliefState parent) {
         double score = 0;
+        Position pac = state.getPacmanPosition();
+        score += state.getScore() * 10.0;
 
-        // --- 1. DÉTECTION MUR (-100 000) ---
-        // Si on n'a pas bougé, c'est interdit.
-        if (r == originalPos.getRow() && c == originalPos.getColumn()) {
-            return -100000.0;
-        }
-        
-        // --- 2. DÉTECTION FANTÔME (La nouveauté) ---
-        // On vérifie si ce futur nous met en danger immédiat
-        if (isDanger(state, r, c)) {
-            return -50000.0; // On fuit cette direction comme la peste !
+        int distGum = state.distanceMinToGum();
+        if (distGum != Integer.MAX_VALUE && distGum > 0) {
+            score += (100.0 / distGum); 
         }
 
-        // --- 3. SURVIE BASIQUE ---
-        // Si on meurt dans cet état, c'est évidemment nul
-        if (state.getLife() <= 0) {
-            return  Double.NEGATIVE_INFINITY;
+        int normalGumsParent = parent.getNbrOfGommes() - parent.getNbrOfSuperGommes();
+        int normalGumsChild = state.getNbrOfGommes() - state.getNbrOfSuperGommes();
+
+        if (normalGumsChild < normalGumsParent) {
+            score += 100.0; // Bonus pour avoir mangé une petite gomme
+            // System.out.println("DEBUG: Miam ! Une gomme normale.");
         }
 
-        // --- 4. EXPLORATION (-1 si déjà vu) ---
-        if (visited.contains(r + "," + c)) {
-            score -= 1.0;
-        }
-
-        // --- 5. FLAIR (+1 si gomme adjacente) ---
-        if (hasGumNeighbor(state, r, c)) {
-            score += 1.0;
-        }
-        
-        // On ajoute le score du jeu pour départager
-        score += state.getScore();
-
-        return score;
-    }
-
-    // Vérifie si un fantôme dangereux est trop proche ou aligné
-    private static boolean isDanger(BeliefState state, int pacRow, int pacCol) {
         int nbrGhosts = state.getNbrOfGhost();
-        for (int i = 0; i < nbrGhosts; i++) {
-            // Si le fantôme est mangeable (bleu), pas de danger
-            if (state.getCompteurPeur(i) > 0) continue;
-            
-            // On regarde toutes les positions possibles de ce fantôme
-            TreeSet<Position> ghostPositions = state.getGhostPositions(i);
-            for (Position ghostPos : ghostPositions) {
-                int gRow = ghostPos.getRow();
-                int gCol = ghostPos.getColumn();
-                
-                // Distance de Manhattan
-                int dist = Math.abs(gRow - pacRow) + Math.abs(gCol - pacCol);
-                
-                // DANGER IMMÉDIAT : Si le fantôme est à 1 case (collision imminente)
-                if (dist <= 1) return true;
-                
-                // DANGER LIGNE DE VUE : Si on est sur la même ligne/colonne et proche (< 5 cases)
-                // On suppose qu'il nous voit et qu'il va charger.
-                if ((gRow == pacRow || gCol == pacCol) && dist < 5) {
-                    return true;
+        int nearbyVisibleGhosts = 0;
+
+        for(int i = 0; i < nbrGhosts; i++) {
+            TreeSet<Position> positions = state.getGhostPositions(i);
+            if (positions.isEmpty()) continue;
+
+            Position gPos = positions.first();
+            int dist = Math.abs(gPos.getRow() - pac.getRow()) + Math.abs(gPos.getColumn() - pac.getColumn());
+
+            if (state.getCompteurPeur(i) > 0) {
+                // CHASSE : On veut manger les bleus
+                if (dist > 0) score += (5000.0 / dist);
+                else score += 10000.0; 
+            } 
+            else {
+                // KITING : On compte les fantômes visibles et proches (distance < 6)
+                if (positions.size() == 1 && dist < 6) {
+                    nearbyVisibleGhosts++;
                 }
             }
         }
-        return false;
+        // --- PÉNALITÉ SUPER GOMME (Ta demande) ---
+        // On vérifie si une Super Gomme a été mangée lors de cette transition
+        if (state.getNbrOfSuperGommes() < parent.getNbrOfSuperGommes()) {
+            
+            if (nearbyVisibleGhosts < 2) {
+                // CAS D'ÉCHEC : On a mangé la gomme alors qu'ils n'étaient pas derrière nous
+                score -= 1000.0; // Grosse pénalité pour interdire ce mouvement
+            } else {
+                // CAS DE RÉUSSITE : On les a bien attirés, on déclenche le carnage
+                score += 5000.0; 
+            }
+        }
+        return score;
     }
 
-    private static boolean hasGumNeighbor(BeliefState state, int r, int c) {
-        try {
-            if (isGum(state.getMap(r+1, c))) return true;
-            if (isGum(state.getMap(r-1, c))) return true;
-            if (isGum(state.getMap(r, c+1))) return true;
-            if (isGum(state.getMap(r, c-1))) return true;
-        } catch (Exception e) {}
-        return false;
+    private static double getDangerScore(BeliefState state) {
+        double danger = 0;
+        Position pac = state.getPacmanPosition();
+        int nbrGhosts = state.getNbrOfGhost();
+
+        for (int i = 0; i < nbrGhosts; i++) {
+            if (state.getCompteurPeur(i) > 0) continue;
+
+            TreeSet<Position> positions = state.getGhostPositions(i);
+            if (positions.isEmpty()) continue;
+
+            double probability = 1.0 / positions.size();
+
+            for (Position ghostPos : positions) {
+                int dist = Math.abs(ghostPos.getRow() - pac.getRow()) + Math.abs(ghostPos.getColumn() - pac.getColumn());
+                if (state.getLife() <= 0) return -10000.0*probability*probability;
+                else if (dist < 1) danger += (200.0 * probability); 
+                else if (dist < 5) danger += (((5-dist)*30) * probability); // Adjusted heuristic per your code
+                boolean isAligned = (ghostPos.getRow() == pac.getRow()) || (ghostPos.getColumn() == pac.getColumn());
+                if (isAligned) {
+                    // On ajoute 30 au danger (donc -30 au score final)
+                    // On peut ajouter une condition de distance (ex: && dist < 10) si tu trouves qu'il est trop peureux de loin.
+                    danger += (30.0 * probability);
+                }
+            }
+                
+        }
+
+        String key = pac.getRow() + "," + pac.getColumn();
+        int timesVisited = visited.getOrDefault(key, 0);
+
+        if (timesVisited > 0) {
+            // La pénalité augmente à chaque passage (70, 140, 210, etc.)
+            danger += 70.0 * timesVisited;
+        }
+        return danger;
     }
 
-    private static boolean isGum(char cell) {
-        return cell == '.' || cell == '*';
+public static void feedback(BeliefState currentState) {
+        System.out.println("\n=== ANALYSE FEEDBACK ===");
+        
+        // 1. Infos Pacman
+        Position cur = currentState.getPacmanPosition();
+        System.out.println("Position Pacman: " + cur.getRow() + "," + cur.getColumn());
+
+        // 2. Infos Fantômes (Positions possibles)
+        System.out.println("--- Croyances Fantômes ---");
+        int nbrGhosts = currentState.getNbrOfGhost();
+        for (int i = 0; i < nbrGhosts; i++) {
+            System.out.print("Fantôme " + i + ": ");
+            
+            TreeSet<Position> positions = currentState.getGhostPositions(i);
+            
+            // Si la liste est vide, le fantôme est mort ou pas encore spawn
+            if (positions.isEmpty()) {
+                System.out.print("Inconnu/Mort");
+            } else {
+                // On affiche les coordonnées
+                // Si la liste est très longue (brouillard), on limite l'affichage pour ne pas spammer
+                int count = 0;
+                for (Position p : positions) {
+                    System.out.print("(" + p.getRow() + "," + p.getColumn() + ") ");
+                    count++;
+                    if (count >= 10) { 
+                        System.out.print("... [" + positions.size() + " pos possibles]");
+                        break; 
+                    }
+                }
+            }
+
+            // Affiche si le fantôme a peur (c'est bon à savoir pour le score)
+            if (currentState.getCompteurPeur(i) > 0) {
+                System.out.print(" [PEUR: " + currentState.getCompteurPeur(i) + "]");
+            }
+            System.out.println(); // Saut de ligne après chaque fantôme
+        }
+        System.out.println("--------------------------");
+
+        // 3. Calcul des scores pour les mouvements
+        Plans plans = currentState.extendsBeliefState();
+
+        for (int i = 0; i < plans.size(); i++) {
+            Result result = plans.getResult(i);
+            ArrayList<String> actions = plans.getAction(i);
+
+            if (actions.isEmpty()) continue;
+
+            String direction = actions.get(0); 
+            
+            // Note: assure-toi que ta méthode evaluateResult accepte bien (Result, Position)
+            double scoreMoyen = evaluateResult(result, currentState);
+
+            System.out.println(String.format("Action: %-6s | Score: %10.2f | Scénarios possibles: %d", 
+                direction, scoreMoyen, result.size()));
+        }
+        System.out.println("========================\n");
     }
 }
