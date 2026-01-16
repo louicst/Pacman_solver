@@ -132,19 +132,26 @@ public class AI {
     private static double heuristic(BeliefState state, BeliefState parentState, boolean isUncertain) {
         return getObjectiveScore(state, parentState, isUncertain) - getDangerScore(state);
     }
-
-    private static double getObjectiveScore(BeliefState state, BeliefState parent, boolean isUncertain) {
+private static double getObjectiveScore(BeliefState state, BeliefState parent, boolean isUncertain) {
         double score = 0;
         Position pac = state.getPacmanPosition();
         String key = pac.getRow() + "," + pac.getColumn();
 
-        // 1. SCORE DIFFERENCE (Confirmed Kill in Deep Search)
+        // 1. SCORE DIFFERENCE (Kill Confirmed > Super Gum > Gum)
         if (state.getScore() > parent.getScore()) {
             double diff = state.getScore() - parent.getScore();
             if (diff > 100) {
-                score += diff * 10000.0; 
+                score += diff * 10000.0; // Ghost Eaten
             } else {
+                // Regular Coin
                 score += diff * 20.0;
+                
+                // --- NEW: GREEDING LOGIC ---
+                // If both ghosts are right behind us (Dist <= 2), eating coins is VERY valuable
+                // because we know the rest of the map is safe.
+                if (areAllGhostsClose(state)) {
+                    score += diff * 500.0; // Massive bonus to clear the area
+                }
             }
         }
 
@@ -164,7 +171,32 @@ public class AI {
         return score;
     }
 
-    // --- COIN DENSITY ---
+    // --- NEW: CHECK IF ALL GHOSTS ARE CLOSE ---
+    private static boolean areAllGhostsClose(BeliefState state) {
+        Position pac = state.getPacmanPosition();
+        int ghostCount = state.getNbrOfGhost();
+        
+        for(int i=0; i<ghostCount; i++) {
+            // Ignore dead/scared ghosts for this check? 
+            // Usually we care about the dangerous ones.
+            if (state.getCompteurPeur(i) > 0) continue; 
+            
+            TreeSet<Position> positions = state.getGhostPositions(i);
+            if (positions.isEmpty()) return false; // Unknown ghost = Not safe
+            
+            // Get nearest possible position
+            int minDist = Integer.MAX_VALUE;
+            for(Position p : positions) {
+                int d = Math.abs(p.getRow() - pac.getRow()) + Math.abs(p.getColumn() - pac.getColumn());
+                if(d < minDist) minDist = d;
+            }
+            
+            // If any ghost is far away (> 2), we are NOT in the "All Close" scenario
+            if (minDist > 2) return false;
+        }
+        return true; // All dangerous ghosts are within 2 steps
+    }
+
     private static double getCoinDensityScore(BeliefState state, Position pac) {
         char[][] map = state.getMap();
         int radius = 3; 
@@ -190,7 +222,6 @@ public class AI {
         return score;
     }
 
-    // --- SMART GHOST HUNTING ---
     private static double getGhostHuntingScore(BeliefState state, Position pac) {
         double score = 0;
         
@@ -243,7 +274,7 @@ public class AI {
     }
 
     public static void feedback(BeliefState currentState) {
-        System.out.println("\n=== ANALYSE AND-OR (Reflex Killer) ===");
+        System.out.println("\n=== ANALYSE AND-OR (Greedy Flanker) ===");
         Position cur = currentState.getPacmanPosition();
         System.out.println("Pos Pacman: " + cur.getRow() + "," + cur.getColumn());
 
@@ -281,12 +312,21 @@ public class AI {
             String direction = actions.get(0); 
             
             boolean startsInvisible = (result.size() > 1);
-            double minScore = Double.POSITIVE_INFINITY;
             
+            double minScore = Double.POSITIVE_INFINITY;
+            int deathCount = 0;
+            
+            for (BeliefState nextState : result.getBeliefStates()) {
+                if (nextState.getLife() <= 0) deathCount++;
+            }
+            
+            boolean certainDeath = (result.size() > 0 && deathCount == result.size());
+
             for (BeliefState nextState : result.getBeliefStates()) {
                 double val;
                 if (nextState.getLife() <= 0) {
-                    val = startsInvisible ? -500000.0 : -1000000000.0;
+                    if (certainDeath) val = -1000000000.0;
+                    else val = -500000.0;
                 } else {
                     val = deepSearch(nextState, currentState, MAX_DEPTH - 1, startsInvisible);
                 }
