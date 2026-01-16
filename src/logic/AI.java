@@ -12,14 +12,24 @@ public class AI {
 
     public static String findNextMove(BeliefState currentState) {
         
-        // 1. Update History
+        // 1. UPDATE HISTORY
         Position currentPos = currentState.getPacmanPosition();
         String currentKey = currentPos.getRow() + "," + currentPos.getColumn();
         visited.put(currentKey, visited.getOrDefault(currentKey, 0) + 1);
 
-        // 2. Debug Feedback
+        // 2. DEBUG FEEDBACK
         feedback(currentState);
 
+        // --- NEW: REFLEX LAYER (INSTINCT DE TUEUR) ---
+        // If a ghost is scared, visible, and 1 step away, KILL IT.
+        String killMove = checkImmediateKill(currentState);
+        if (killMove != null) {
+            System.out.println(">>> KILL REFLEX ACTIVATED: " + killMove);
+            return killMove; 
+        }
+        // ---------------------------------------------
+
+        // 3. NORMAL SEARCH (AND-OR)
         Plans plans = currentState.extendsBeliefState();
         String bestAction = PacManLauncher.UP; 
         double maxScore = Double.NEGATIVE_INFINITY;
@@ -40,7 +50,7 @@ public class AI {
             }
         }
         
-        //waitForUserPopup();
+        waitForUserPopup();
         return bestAction;
     }
 
@@ -50,7 +60,37 @@ public class AI {
         } catch (Exception e) {}
     }
 
-    // --- AND NODE (Environment chooses Min) ---
+    // --- NEW: IMMEDIATE KILL CHECKER ---
+    private static String checkImmediateKill(BeliefState state) {
+        Position pac = state.getPacmanPosition();
+        
+        for (int i = 0; i < state.getNbrOfGhost(); i++) {
+            // Is he scared?
+            if (state.getCompteurPeur(i) > 0) {
+                TreeSet<Position> positions = state.getGhostPositions(i);
+                
+                // Is he visible (exactly 1 position)?
+                if (positions.size() == 1) {
+                    Position ghostPos = positions.first();
+                    
+                    // Is he adjacent?
+                    int dRow = ghostPos.getRow() - pac.getRow();
+                    int dCol = ghostPos.getColumn() - pac.getColumn();
+                    
+                    if (Math.abs(dRow) + Math.abs(dCol) == 1) {
+                        // Return the direction immediately
+                        if (dRow == -1) return PacManLauncher.UP;
+                        if (dRow == 1)  return PacManLauncher.DOWN;
+                        if (dCol == -1) return PacManLauncher.LEFT;
+                        if (dCol == 1)  return PacManLauncher.RIGHT;
+                    }
+                }
+            }
+        }
+        return null; // No kill found
+    }
+
+    // --- AND NODE ---
     private static double evaluateANDNode(Result result, BeliefState parent, int depth, boolean isInvisibleContext) {
         double minScore = Double.POSITIVE_INFINITY;
         boolean hasValidScenario = false;
@@ -72,7 +112,7 @@ public class AI {
         return hasValidScenario ? minScore : -1000000000.0;
     }
 
-    // --- OR NODE (Recursive Step) ---
+    // --- OR NODE ---
     private static double deepSearch(BeliefState state, BeliefState parent, int depth, boolean isInvisibleContext) {
         if (depth == 0) return heuristic(state, parent, isInvisibleContext);
 
@@ -98,47 +138,45 @@ public class AI {
         Position pac = state.getPacmanPosition();
         String key = pac.getRow() + "," + pac.getColumn();
 
-        // 1. COIN DENSITY (Replacing simple "Nearest Coin")
-        // Instead of just finding one coin, we check if we are moving INTO a cluster.
+        // 1. SCORE DIFFERENCE (Confirmed Kill in Deep Search)
+        if (state.getScore() > parent.getScore()) {
+            double diff = state.getScore() - parent.getScore();
+            if (diff > 100) {
+                score += diff * 10000.0; 
+            } else {
+                score += diff * 20.0;
+            }
+        }
+
+        // 2. COIN DENSITY
         score += getCoinDensityScore(state, pac);
         
-        // 2. SMART GHOST HUNTING (Time Calculation)
-        // Only if we are in a visible context (don't chase ghosts in fog)
+        // 3. SMART GHOST HUNTING
         if (!isUncertain) {
             score += getGhostHuntingScore(state, pac);
         }
 
-        // 3. EXPLORATION BONUS (Only if uncertain/invisible mode)
-        // If we can see everything, we don't need to explore blindly, we just hunt coins/ghosts.
+        // 4. EXPLORATION
         if (isUncertain && visited.getOrDefault(key, 0) == 0) {
             score += 200.0; 
-        }
-
-        // 4. SCORE DIFFERENCE
-        if (state.getScore() > parent.getScore()) {
-            score += (state.getScore() - parent.getScore()) * 10.0;
         }
 
         return score;
     }
 
-    // --- NEW: COIN DENSITY CALCULATION ---
+    // --- COIN DENSITY ---
     private static double getCoinDensityScore(BeliefState state, Position pac) {
         char[][] map = state.getMap();
-        int radius = 3; // Check 3 cells around Pacman (7x7 grid)
+        int radius = 3; 
         int coinCount = 0;
         double minDist = Double.MAX_VALUE;
 
-        // Scan the area around Pacman
         for (int r = pac.getRow() - radius; r <= pac.getRow() + radius; r++) {
             for (int c = pac.getColumn() - radius; c <= pac.getColumn() + radius; c++) {
-                // Bounds check
                 if (r >= 0 && r < map.length && c >= 0 && c < map[0].length) {
                     char cell = map[r][c];
                     if (cell == '.' || cell == '*') {
-                        coinCount++; // Found a coin in the cluster!
-                        
-                        // Also keep track of nearest coin for basic guidance
+                        coinCount++;
                         double d = Math.abs(r - pac.getRow()) + Math.abs(c - pac.getColumn());
                         if (d < minDist) minDist = d;
                     }
@@ -147,52 +185,31 @@ public class AI {
         }
 
         double score = 0;
-        
-        // Reward 1: Density (Cluster)
-        // Walking towards a group of 5 coins is better than walking towards 1 coin.
-        if (coinCount > 0) {
-            score += coinCount * 100.0; 
-        }
-
-        // Reward 2: Proximity (Guidance)
-        // Still helpful to know exactly where the closest one is to start the chain.
-        if (minDist != Double.MAX_VALUE) {
-            score += (2000.0 / (minDist + 1));
-        }
-
+        if (coinCount > 0) score += coinCount * 100.0; 
+        if (minDist != Double.MAX_VALUE) score += (2000.0 / (minDist + 1));
         return score;
     }
 
-    // --- NEW: SMART GHOST HUNTING (TIME CHECK) ---
+    // --- SMART GHOST HUNTING ---
     private static double getGhostHuntingScore(BeliefState state, Position pac) {
         double score = 0;
         
         for (int i = 0; i < state.getNbrOfGhost(); i++) {
             int fearTimer = state.getCompteurPeur(i);
             
-            // Only calculate if ghost is scared
             if (fearTimer > 0) {
                 TreeSet<Position> positions = state.getGhostPositions(i);
-                if (positions.isEmpty()) continue;
-
-                // Assume visible context -> usually 1 position. If uncertain, we skip this function in heuristic.
-                Position ghostPos = positions.first(); 
                 
-                int dist = Math.abs(ghostPos.getRow() - pac.getRow()) + Math.abs(ghostPos.getColumn() - pac.getColumn());
-                
-                // === THE CALCULATION ===
-                // We need: Distance to reach him + Safety Buffer (2 moves)
-                int requiredTime = dist + 2;
+                // Only chase visible ghosts
+                if (positions.size() == 1) {
+                    Position ghostPos = positions.first(); 
+                    int dist = Math.abs(ghostPos.getRow() - pac.getRow()) + Math.abs(ghostPos.getColumn() - pac.getColumn());
+                    int requiredTime = dist + 2;
 
-                if (fearTimer >= requiredTime) {
-                    // WE HAVE TIME! CHASE HIM!
-                    // The closer we are, the higher the score.
-                    // Base bonus (5000) + Proximity bonus.
-                    score += 5000.0 + (2000.0 / (dist + 1));
-                } else {
-                    // NOT ENOUGH TIME.
-                    // Treat him as normal danger (handled in getDangerScore) or just ignore.
-                    // We definitely do NOT give points for walking towards him.
+                    if (fearTimer >= requiredTime) {
+                        score += 200000.0; 
+                        score += (10000.0 / (dist + 1));
+                    }
                 }
             }
         }
@@ -210,7 +227,6 @@ public class AI {
         }
 
         for (int i = 0; i < state.getNbrOfGhost(); i++) {
-            // If scared, ignore danger (unless time is low, but that's handled by not giving bonus)
             if (state.getCompteurPeur(i) > 0) continue; 
             
             TreeSet<Position> positions = state.getGhostPositions(i);
@@ -226,13 +242,11 @@ public class AI {
         return danger;
     }
 
- // --- UPDATED FEEDBACK WITH GHOST POSITIONS ---
     public static void feedback(BeliefState currentState) {
-        System.out.println("\n=== ANALYSE AND-OR (Density & Timing) ===");
+        System.out.println("\n=== ANALYSE AND-OR (Reflex Killer) ===");
         Position cur = currentState.getPacmanPosition();
         System.out.println("Pos Pacman: " + cur.getRow() + "," + cur.getColumn());
 
-        // --- GHOST POSITIONS DISPLAY ---
         System.out.println("--- Ghost Positions ---");
         int nbrGhosts = currentState.getNbrOfGhost();
         for (int i = 0; i < nbrGhosts; i++) {
