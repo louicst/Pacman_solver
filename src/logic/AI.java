@@ -20,7 +20,7 @@ public class AI {
         // 2. DEBUG FEEDBACK
         feedback(currentState);
 
-        // --- NEW: REFLEX LAYER (INSTINCT DE TUEUR) ---
+        // --- REFLEX LAYER (INSTINCT DE TUEUR) ---
         // If a ghost is scared, visible, and 1 step away, KILL IT.
         String killMove = checkImmediateKill(currentState);
         if (killMove != null) {
@@ -50,7 +50,7 @@ public class AI {
             }
         }
         
-        waitForUserPopup();
+        // waitForUserPopup();
         return bestAction;
     }
 
@@ -60,25 +60,17 @@ public class AI {
         } catch (Exception e) {}
     }
 
-    // --- NEW: IMMEDIATE KILL CHECKER ---
+    // --- REFLEX KILL CHECKER ---
     private static String checkImmediateKill(BeliefState state) {
         Position pac = state.getPacmanPosition();
-        
         for (int i = 0; i < state.getNbrOfGhost(); i++) {
-            // Is he scared?
             if (state.getCompteurPeur(i) > 0) {
                 TreeSet<Position> positions = state.getGhostPositions(i);
-                
-                // Is he visible (exactly 1 position)?
                 if (positions.size() == 1) {
                     Position ghostPos = positions.first();
-                    
-                    // Is he adjacent?
                     int dRow = ghostPos.getRow() - pac.getRow();
                     int dCol = ghostPos.getColumn() - pac.getColumn();
-                    
                     if (Math.abs(dRow) + Math.abs(dCol) == 1) {
-                        // Return the direction immediately
                         if (dRow == -1) return PacManLauncher.UP;
                         if (dRow == 1)  return PacManLauncher.DOWN;
                         if (dCol == -1) return PacManLauncher.LEFT;
@@ -87,7 +79,7 @@ public class AI {
                 }
             }
         }
-        return null; // No kill found
+        return null; 
     }
 
     // --- AND NODE ---
@@ -96,11 +88,16 @@ public class AI {
         boolean hasValidScenario = false;
         boolean currentContextIsInvisible = isInvisibleContext || (result.size() > 1);
 
+        // Note: The "100% Death Check" has been removed as requested.
+        // We proceed directly to checking each scenario.
+
         for (BeliefState nextState : result.getBeliefStates()) {
             hasValidScenario = true;
             double val;
 
             if (nextState.getLife() < parent.getLife() || nextState.getLife() <= 0) {
+                // If the context is invisible, we treat death as a risk (-500k).
+                // If visible, it's a certainty (-1B).
                 if (currentContextIsInvisible) val = -500000.0; 
                 else val = -1000000000.0; 
             } else {
@@ -132,7 +129,8 @@ public class AI {
     private static double heuristic(BeliefState state, BeliefState parentState, boolean isUncertain) {
         return getObjectiveScore(state, parentState, isUncertain) - getDangerScore(state);
     }
-private static double getObjectiveScore(BeliefState state, BeliefState parent, boolean isUncertain) {
+
+    private static double getObjectiveScore(BeliefState state, BeliefState parent, boolean isUncertain) {
         double score = 0;
         Position pac = state.getPacmanPosition();
         String key = pac.getRow() + "," + pac.getColumn();
@@ -146,11 +144,11 @@ private static double getObjectiveScore(BeliefState state, BeliefState parent, b
                 // Regular Coin
                 score += diff * 20.0;
                 
-                // --- NEW: GREEDING LOGIC ---
-                // If both ghosts are right behind us (Dist <= 2), eating coins is VERY valuable
-                // because we know the rest of the map is safe.
+                // --- GREEDING LOGIC ---
+                // If ALL dangerous ghosts are close (Dist <= 2), we know the map is safe.
+                // We boost the value of eating regular coins here.
                 if (areAllGhostsClose(state)) {
-                    score += diff * 500.0; // Massive bonus to clear the area
+                    score += diff * 500.0; 
                 }
             }
         }
@@ -171,92 +169,39 @@ private static double getObjectiveScore(BeliefState state, BeliefState parent, b
         return score;
     }
 
-    // --- NEW: CHECK IF ALL GHOSTS ARE CLOSE ---
-    private static boolean areAllGhostsClose(BeliefState state) {
-        Position pac = state.getPacmanPosition();
-        int ghostCount = state.getNbrOfGhost();
-        
-        for(int i=0; i<ghostCount; i++) {
-            // Ignore dead/scared ghosts for this check? 
-            // Usually we care about the dangerous ones.
-            if (state.getCompteurPeur(i) > 0) continue; 
-            
-            TreeSet<Position> positions = state.getGhostPositions(i);
-            if (positions.isEmpty()) return false; // Unknown ghost = Not safe
-            
-            // Get nearest possible position
-            int minDist = Integer.MAX_VALUE;
-            for(Position p : positions) {
-                int d = Math.abs(p.getRow() - pac.getRow()) + Math.abs(p.getColumn() - pac.getColumn());
-                if(d < minDist) minDist = d;
-            }
-            
-            // If any ghost is far away (> 2), we are NOT in the "All Close" scenario
-            if (minDist > 2) return false;
-        }
-        return true; // All dangerous ghosts are within 2 steps
-    }
-
-    private static double getCoinDensityScore(BeliefState state, Position pac) {
-        char[][] map = state.getMap();
-        int radius = 3; 
-        int coinCount = 0;
-        double minDist = Double.MAX_VALUE;
-
-        for (int r = pac.getRow() - radius; r <= pac.getRow() + radius; r++) {
-            for (int c = pac.getColumn() - radius; c <= pac.getColumn() + radius; c++) {
-                if (r >= 0 && r < map.length && c >= 0 && c < map[0].length) {
-                    char cell = map[r][c];
-                    if (cell == '.' || cell == '*') {
-                        coinCount++;
-                        double d = Math.abs(r - pac.getRow()) + Math.abs(c - pac.getColumn());
-                        if (d < minDist) minDist = d;
-                    }
-                }
-            }
-        }
-
-        double score = 0;
-        if (coinCount > 0) score += coinCount * 100.0; 
-        if (minDist != Double.MAX_VALUE) score += (2000.0 / (minDist + 1));
-        return score;
-    }
-
-    private static double getGhostHuntingScore(BeliefState state, Position pac) {
-        double score = 0;
-        
-        for (int i = 0; i < state.getNbrOfGhost(); i++) {
-            int fearTimer = state.getCompteurPeur(i);
-            
-            if (fearTimer > 0) {
-                TreeSet<Position> positions = state.getGhostPositions(i);
-                
-                // Only chase visible ghosts
-                if (positions.size() == 1) {
-                    Position ghostPos = positions.first(); 
-                    int dist = Math.abs(ghostPos.getRow() - pac.getRow()) + Math.abs(ghostPos.getColumn() - pac.getColumn());
-                    int requiredTime = dist + 2;
-
-                    if (fearTimer >= requiredTime) {
-                        score += 200000.0; 
-                        score += (10000.0 / (dist + 1));
-                    }
-                }
-            }
-        }
-        return score;
-    }
-
+    // --- DANGER ANALYSIS (STRATEGIC POSITIONING) ---
     private static double getDangerScore(BeliefState state) {
         double danger = 0;
         Position pac = state.getPacmanPosition();
         String key = pac.getRow() + "," + pac.getColumn();
 
+        // 1. STRATEGIC POSITIONING
+        // Check Information State: Do we know where dangerous ghosts are?
+        boolean isTacticalSituationSafe = checkTacticalSafety(state);
+
+        // If Unsafe (Invisible Ghosts), analyze Map Topology
+        if (!isTacticalSituationSafe) {
+            int exits = countExits(state, pac);
+            
+            if (exits >= 3) {
+                // JUNCTION: Safe Haven (Bonus)
+                danger -= 500.0; 
+            } else if (exits == 2) {
+                // CORRIDOR: Death Trap (Penalty)
+                danger += 2000.0; 
+            } else if (exits == 1) {
+                // DEAD END (Penalty)
+                danger += 5000.0;
+            }
+        }
+
+        // 2. VISITED PENALTY
         int nbrVisits = visited.getOrDefault(key, 0);
         if (nbrVisits > 0) {
             danger += Math.pow(nbrVisits, 2) * 50.0; 
         }
 
+        // 3. GHOST PROXIMITY
         for (int i = 0; i < state.getNbrOfGhost(); i++) {
             if (state.getCompteurPeur(i) > 0) continue; 
             
@@ -273,8 +218,96 @@ private static double getObjectiveScore(BeliefState state, BeliefState parent, b
         return danger;
     }
 
+    // --- HELPERS ---
+
+    // Returns TRUE only if ALL dangerous ghosts are known (visible)
+    private static boolean checkTacticalSafety(BeliefState state) {
+        for (int i = 0; i < state.getNbrOfGhost(); i++) {
+            if (state.getCompteurPeur(i) > 0) continue; 
+            TreeSet<Position> positions = state.getGhostPositions(i);
+            if (positions.size() > 1) return false; 
+        }
+        return true; 
+    }
+
+    // Returns TRUE only if ALL dangerous ghosts are within Distance 2
+    private static boolean areAllGhostsClose(BeliefState state) {
+        Position pac = state.getPacmanPosition();
+        int ghostCount = state.getNbrOfGhost();
+        for(int i=0; i<ghostCount; i++) {
+            if (state.getCompteurPeur(i) > 0) continue; 
+            TreeSet<Position> positions = state.getGhostPositions(i);
+            if (positions.isEmpty()) return false; 
+            int minDist = Integer.MAX_VALUE;
+            for(Position p : positions) {
+                int d = Math.abs(p.getRow() - pac.getRow()) + Math.abs(p.getColumn() - pac.getColumn());
+                if(d < minDist) minDist = d;
+            }
+            if (minDist > 2) return false;
+        }
+        return true; 
+    }
+
+    private static int countExits(BeliefState state, Position p) {
+        int exits = 0;
+        char[][] map = state.getMap();
+        int r = p.getRow(); int c = p.getColumn();
+        if (isValid(r+1, c, map)) exits++;
+        if (isValid(r-1, c, map)) exits++;
+        if (isValid(r, c+1, map)) exits++;
+        if (isValid(r, c-1, map)) exits++;
+        return exits;
+    }
+
+    private static boolean isValid(int r, int c, char[][] map) {
+        return r >= 0 && r < map.length && c >= 0 && c < map[0].length && map[r][c] != '#';
+    }
+
+    private static double getCoinDensityScore(BeliefState state, Position pac) {
+        char[][] map = state.getMap();
+        int radius = 3; 
+        int coinCount = 0;
+        double minDist = Double.MAX_VALUE;
+        for (int r = pac.getRow() - radius; r <= pac.getRow() + radius; r++) {
+            for (int c = pac.getColumn() - radius; c <= pac.getColumn() + radius; c++) {
+                if (r >= 0 && r < map.length && c >= 0 && c < map[0].length) {
+                    char cell = map[r][c];
+                    if (cell == '.' || cell == '*') {
+                        coinCount++;
+                        double d = Math.abs(r - pac.getRow()) + Math.abs(c - pac.getColumn());
+                        if (d < minDist) minDist = d;
+                    }
+                }
+            }
+        }
+        double score = 0;
+        if (coinCount > 0) score += coinCount * 100.0; 
+        if (minDist != Double.MAX_VALUE) score += (2000.0 / (minDist + 1));
+        return score;
+    }
+
+    private static double getGhostHuntingScore(BeliefState state, Position pac) {
+        double score = 0;
+        for (int i = 0; i < state.getNbrOfGhost(); i++) {
+            int fearTimer = state.getCompteurPeur(i);
+            if (fearTimer > 0) {
+                TreeSet<Position> positions = state.getGhostPositions(i);
+                if (positions.size() == 1) {
+                    Position ghostPos = positions.first(); 
+                    int dist = Math.abs(ghostPos.getRow() - pac.getRow()) + Math.abs(ghostPos.getColumn() - pac.getColumn());
+                    int requiredTime = dist + 2;
+                    if (fearTimer >= requiredTime) {
+                        score += 200000.0; 
+                        score += (10000.0 / (dist + 1));
+                    }
+                }
+            }
+        }
+        return score;
+    }
+
     public static void feedback(BeliefState currentState) {
-        System.out.println("\n=== ANALYSE AND-OR (Greedy Flanker) ===");
+        System.out.println("\n=== ANALYSE AND-OR (Final Strategy) ===");
         Position cur = currentState.getPacmanPosition();
         System.out.println("Pos Pacman: " + cur.getRow() + "," + cur.getColumn());
 
@@ -312,21 +345,13 @@ private static double getObjectiveScore(BeliefState state, BeliefState parent, b
             String direction = actions.get(0); 
             
             boolean startsInvisible = (result.size() > 1);
-            
             double minScore = Double.POSITIVE_INFINITY;
-            int deathCount = 0;
             
-            for (BeliefState nextState : result.getBeliefStates()) {
-                if (nextState.getLife() <= 0) deathCount++;
-            }
-            
-            boolean certainDeath = (result.size() > 0 && deathCount == result.size());
-
             for (BeliefState nextState : result.getBeliefStates()) {
                 double val;
                 if (nextState.getLife() <= 0) {
-                    if (certainDeath) val = -1000000000.0;
-                    else val = -500000.0;
+                    if (startsInvisible) val = -500000.0; 
+                    else val = -1000000000.0; 
                 } else {
                     val = deepSearch(nextState, currentState, MAX_DEPTH - 1, startsInvisible);
                 }
