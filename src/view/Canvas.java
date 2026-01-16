@@ -287,7 +287,7 @@ public class Canvas
 		printString("Vie : "+life, 10, 40);
 		printString("Meilleur score : "+meilleurScore, 240, 20);
 		canvas.repaint();
-		wait(125);
+		wait(5);
 	}
 
 	/**
