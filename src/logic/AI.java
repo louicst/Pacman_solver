@@ -3,6 +3,7 @@ package logic;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import javax.swing.JOptionPane;
 import java.util.TreeSet;
 
 public class AI {
@@ -10,6 +11,9 @@ public class AI {
     private static final int MAX_DEPTH = 3; 
 
     public static String findNextMove(BeliefState currentState) {
+
+        feedback(currentState);
+
         Position currentPos = currentState.getPacmanPosition();
         String currentKey = currentPos.getRow() + "," + currentPos.getColumn();
         
@@ -24,11 +28,16 @@ public class AI {
             Result result = plans.getResult(i);
             if (plans.getAction(i).isEmpty()) continue;
             
-            double score = 0;
+            double score = Double.POSITIVE_INFINITY; // Start with max possible
             for (BeliefState nextState : result.getBeliefStates()) {
-                score += deepSearch(nextState, currentState, MAX_DEPTH - 1);
+                double val = deepSearch(nextState, currentState, MAX_DEPTH - 1);
+                
+                // In an AND node, the value is the WORST possible outcome (Min)
+                if (val < score) {
+                    score = val;
+                }
             }
-            score /= result.size();
+            // No division. The value of the action is defined by its weakest link.
             score += Math.random() * 0.01;
 
             if (score > maxScore) {
@@ -36,7 +45,20 @@ public class AI {
                 bestAction = plans.getAction(i).get(0);
             }
         }
+        waitForUserPopup();
+        
         return bestAction;
+    }
+
+    private static void waitForUserPopup() {
+        // This opens a tiny dialog window. 
+        // It pauses the code here, but allows the Game Window background to keep rendering.
+        // You can just hit SPACE or ENTER to dismiss it quickly.
+        try {
+            JOptionPane.showMessageDialog(null, "Score calculated. Press OK for next move.", "AI Debugger", JOptionPane.PLAIN_MESSAGE);
+        } catch (Exception e) {
+            // Ignore UI errors
+        }
     }
 
     private static double deepSearch(BeliefState state, BeliefState parent, int depth) {
@@ -152,5 +174,62 @@ public class AI {
         avgR /= count; avgC /= count;
         double dist = Math.abs(avgR - pac.getRow()) + Math.abs(avgC - pac.getColumn());
         return (5000.0 / (dist + 1)); // Augmenté pour tirer Pac-Man vers les gommes
+    }
+    public static void feedback(BeliefState currentState) {
+        System.out.println("\n=== ANALYSE FEEDBACK (Deep Search) ===");
+        
+        Position cur = currentState.getPacmanPosition();
+        System.out.println("Position Pacman: " + cur.getRow() + "," + cur.getColumn());
+
+        // Display Ghost Beliefs
+        System.out.println("--- Croyances Fantômes ---");
+        int nbrGhosts = currentState.getNbrOfGhost();
+        for (int i = 0; i < nbrGhosts; i++) {
+            System.out.print("Fantôme " + i + ": ");
+            TreeSet<Position> positions = currentState.getGhostPositions(i);
+            if (positions.isEmpty()) {
+                System.out.print("Inconnu/Mort");
+            } else {
+                int count = 0;
+                for (Position p : positions) {
+                    System.out.print("(" + p.getRow() + "," + p.getColumn() + ") ");
+                    count++;
+                    if (count >= 5) { 
+                        System.out.print("... [" + positions.size() + " pos]");
+                        break; 
+                    }
+                }
+            }
+            if (currentState.getCompteurPeur(i) > 0) System.out.print(" [PEUR]");
+            System.out.println(); 
+        }
+        System.out.println("--------------------------");
+
+        Plans plans = currentState.extendsBeliefState();
+
+        for (int i = 0; i < plans.size(); i++) {
+            Result result = plans.getResult(i);
+            ArrayList<String> actions = plans.getAction(i);
+
+            if (actions.isEmpty()) continue;
+            String direction = actions.get(0); 
+            
+            // --- CORRECTION: USE DEEP SEARCH LIKE THE MAIN LOOP ---
+            double worstCaseScore = Double.POSITIVE_INFINITY;
+            
+            for (BeliefState nextState : result.getBeliefStates()) {
+                // We use the same MAX_DEPTH as the real decision making
+                double val = deepSearch(nextState, currentState, MAX_DEPTH - 1);
+                
+                if (val < worstCaseScore) {
+                    worstCaseScore = val;
+                }
+            }
+            // -----------------------------------------------------
+
+            System.out.println(String.format("Action: %-6s | Score (Deep Min): %10.2f | Scénarios: %d", 
+                direction, worstCaseScore, result.size()));
+        }
+        System.out.println("========================\n");
     }
 }
